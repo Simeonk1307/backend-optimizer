@@ -68,6 +68,18 @@ services:
     networks:
       - backend_optimizer_net
 
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    networks:
+      - backend_optimizer_net
+
 networks:
   # PERFORMANCE: A custom bridge network is faster than the default Docker bridge
   # and provides better DNS isolation for the 'db' and 'redis' hostnames.
