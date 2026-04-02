@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      # SECURITY: Binding to 127.0.0.1 ensures only your Arch host can reach the API.
+      # To test from your phone, change to "0.0.0.0:8080:8080" and check 'ip addr' and use ip of the laptop to connect.
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      db:
+        # STRATEGY: Prevents "Connection Refused" errors by waiting for the DB 
+        # to be fully initialized and accepting queries.
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://postgres:password123@db:5432/socialdb?sslmode=disable
+      - REDIS_URL=redis:6379
+    volumes:
+      # PERSISTENCE: Maps container uploads to a named volume so images survive 
+      # a 'docker-compose down' or an API crash.
+      - media_uploads:/app/uploads
+    restart: always 
+    networks:
+      - backend_optimizer_net
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: socialdb
+    # OPTIMIZATION: 'max_connections' tuned for Go concurrency.
+    command: >
+      postgres -c max_connections=300 
+               -c shared_buffers=256MB 
+               -c checkpoint_timeout=15min
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # AUTOMATION: This script creates your tables on the very first run.
+      # WARNING: If you edit init.sql, you MUST run 'docker-compose down -v' to apply.
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d socialdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend_optimizer_net
+
+  redis:
+    image: redis:7-alpine
+    # PERFORMANCE: Nitro Mode (No Disk I/O). 
+    # WARNING: Volatile memory. If the container restarts, all cached likes/sessions are lost.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+    networks:
+      - backend_optimizer_net
+
+networks:
+  # PERFORMANCE: A custom bridge network is faster than the default Docker bridge
+  # and provides better DNS isolation for the 'db' and 'redis' hostnames.
+  backend_optimizer_net:
+    driver: bridge
+
+volumes:
+  # STORAGE: Named volumes are managed by Docker and are faster on Linux/Arch 
+  # than mapping to a specific folder on your home directory.
+  postgres_data:
+  media_uploads:
