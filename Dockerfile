@@ -18,16 +18,17 @@ COPY . .
 # Compiles the app. 
 # CGO_ENABLED=0: Disables C-links to make the binary "Static" (runs anywhere).
 # GOOS=linux: Ensures the executable works on Linux kernels.
-RUN CGO_ENABLED=0 GOOS=linux go build -o main .
+RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/api/
 
 
 # --- STAGE 2: The Lean Runtime ---
 # Starts a fresh, tiny Linux image. We throw away the Go compiler and source code here.
-FROM alpine:latest
+FROM alpine:3.23.3
 
 # Sets the execution directory to the root user's home.
 WORKDIR /root/
-
+# media directory needs to exist
+RUN mkdir -p media
 # Reaches into the 'builder' stage and grabs ONLY the finished 'main' binary.
 # This reduces your image size from ~300MB down to ~15MB.
 COPY --from=builder /app/main .
