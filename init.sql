@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TABLE users (
     user_id      TEXT PRIMARY KEY DEFAULT 'u_' || gen_random_uuid(),
     username     TEXT UNIQUE NOT NULL,
-    hashed_password     TEXT NOT NULL,
+    password     TEXT NOT NULL,
     display_name TEXT NOT NULL,
     created_at   TIMESTAMPTZ DEFAULT NOW()
 );
