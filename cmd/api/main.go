@@ -1,4 +1,3 @@
-// FILE: cmd/api/main.go
 package main
 
 import (
@@ -13,115 +12,127 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 
 	"backend-optimizer/internal/database"
-	"backend-optimizer/internal/handlers"
-	appMiddleware "backend-optimizer/internal/middleware"
+	// "backend-optimizer/internal/handlers"
+	// appMiddleware "backend-optimizer/internal/middleware"
 )
 
+func mustGetEnv(key string) string {
+	val := os.Getenv(key)
+	if val == "" {
+		// This kills the process and prints exactly what is missing
+		log.Fatalf("FATAL: Environment variable %s is not set", key)
+	}
+	return val
+}
+
 func main() {
+	// 1. Setup Signal Handling for Graceful Shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// --- Postgres ---
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "postgres://postgres:password123@db:5432/socialdb?sslmode=disable"
-	}
+	// 2. Strict Environment Loading (Fail Fast)
+	dbURL := mustGetEnv("DATABASE_URL")
+	rdURL := mustGetEnv("REDIS_URL")
+	_ = mustGetEnv("JWT_SECRET") // We check it exists here; middleware uses it later
 
-	poolCfg, err := pgxpool.ParseConfig(dbURL)
-	if err != nil {
-		log.Fatalf("Unable to parse DATABASE_URL: %v\n", err)
-	}
-	poolCfg.MaxConns = 100
-	poolCfg.MinConns = 10
 
-	dbPool, err := pgxpool.NewWithConfig(ctx, poolCfg)
-	if err != nil {
-		log.Fatalf("Unable to connect to database: %v\n", err)
-	}
-	defer dbPool.Close()
+	// 3. Initialize Database Pools with cleanup on exit
+	// These functions handle their own config and ping verification
+	database.InitPostgres(dbURL)
+	defer database.ClosePostgres()
+	database.InitRedis(rdURL)
+	defer database.CloseRedis()
 
-	// --- Redis ---
-	redisURL := os.Getenv("REDIS_URL")
-	if redisURL == "" {
-		redisURL = "redis:6379"
-	}
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     redisURL,
-		PoolSize: 50,
-	})
-	defer rdb.Close()
+	// 4. Dependency Injection
+	// We pass the global pools directly from the database package
+	// h := handlers.NewHandler(database.PPool, database.RDB)
 
-	// --- Dependency injection ---
-	db := database.NewPostgres(dbPool)
-	cache := database.NewRedisCache(rdb)
-	h := handlers.NewHandler(db, cache)
-
-	// --- Router ---
+	// 5. Router Setup
 	r := chi.NewRouter()
-	r.Use(chiMiddleware.Recoverer)
+	
+	// Built-in Chi Middleware
+	r.Use(chiMiddleware.Recoverer) // Prevents app crashes on panics
+	r.Use(chiMiddleware.RealIP)    // Correctly identifies client IP
 
-	// Serve uploaded media files
-	mediaFS := http.StripPrefix("/media/", http.FileServer(http.Dir("/root/media")))
+	// Serve media files - FIXED PATH to ./media to match Docker WORKDIR
+	mediaFS := http.StripPrefix("/media/", http.FileServer(http.Dir("./media")))
 	r.Get("/media/*", mediaFS.ServeHTTP)
 
-	// Health
+	// Health Check - FIXED to use database.PPool
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := dbPool.Ping(r.Context()); err != nil {
+		if err := database.PPool.Ping(r.Context()); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("DB Offline"))
+			w.Write([]byte("Postgres DB Offline"))
 			return
 		}
-		w.Write([]byte("OK"))
+		w.Write([]byte("OK Postgres"))
 	})
 
-	// Auth (no auth middleware)
-	r.Post("/auth/register", h.Register)
-	r.Post("/auth/login", h.Login)
+	// Health Check - FIXED to use database.PPool
+	// Health Check - FIXED to use database.RDB correctly
+    r.Get("/health-redis", func(w http.ResponseWriter, r *http.Request) {
+        // .Ping() returns a *redis.StatusCmd
+        // We call .Err() to see if the connection actually worked
+        if err := database.RDB.Ping(r.Context()).Err(); err != nil {
+            w.WriteHeader(http.StatusInternalServerError)
+            w.Write([]byte("Redis DB Offline"))
+            return
+        }
+        w.Write([]byte("OK Redis"))
+    })
 
-	// Authenticated routes
-	r.Group(func(r chi.Router) {
-		r.Use(appMiddleware.Auth(cache))
+	// Public Routes
+	// r.Post("/auth/register", h.Register)
+	// r.Post("/auth/login", h.Login)
 
-		// User
-		r.Get("/user/details", h.UserDetails)
-		r.Post("/user/delete", h.UserDelete)
-		r.Get("/user/get_posts", h.UserGetPosts)
-		r.Get("/user/liked_posts", h.UserLikedPosts)
+	// Authenticated Routes
+	// r.Group(func(r chi.Router) {
+		// FIXED: appMiddleware.Auth no longer needs 'cache' passed in 
+		// because it uses the global database.RDB internally.
+		// r.Use(appMiddleware.Auth)
 
-		// Posts
-		r.Post("/posts/create", h.PostCreate)
-		r.Get("/posts/details", h.PostDetails)
-		r.Post("/posts/delete", h.PostDelete)
-		r.Post("/posts/like", h.PostLike)
-	})
+	// 	// User Endpoints
+	// 	r.Get("/user/details", h.UserDetails)
+	// 	r.Post("/user/delete", h.UserDelete)
+	// 	r.Get("/user/get_posts", h.UserGetPosts)
+	// 	r.Get("/user/liked_posts", h.UserLikedPosts)
 
-	// --- Start Server ---
+	// 	// Post Endpoints
+	// 	r.Post("/posts/create", h.PostCreate)
+	// 	r.Get("/posts/details", h.PostDetails)
+	// 	r.Post("/posts/delete", h.PostDelete)
+	// 	r.Post("/posts/like", h.PostLike)
+	// })
+
+	// 6. Server Configuration (Optimized Timeouts)
 	srv := &http.Server{
 		Addr:         ":8080",
 		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  5 * time.Second,   // Tightened for benchmarks
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
+	// 7. Start Server in a goroutine
 	go func() {
-		fmt.Println("🚀 Backend Optimizer API starting on :8080")
+		fmt.Printf("🚀 Backend Optimizer API starting on %s\n", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
+			log.Fatalf("listen error: %s\n", err)
 		}
 	}()
 
+	// Wait for Interrupt
 	<-ctx.Done()
 	fmt.Println("\nShutting down gracefully...")
 
+	// 8. Final Cleanup Context
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
 	}
+	fmt.Println("👋 Server stopped.")
 }

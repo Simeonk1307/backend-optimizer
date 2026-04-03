@@ -16,11 +16,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// TODO: This is the fastest choice but we shd use REDIS
+// TODO: This is the fastest choice but we could use REDIS
 // tokenCache stores already-validated tokens so we don't re-parse the same JWT on every request.
+// PROBLEM: this will keep on growing so we need some way to restrict this 
 var tokenCache sync.Map
 
-// runs on startup so if not set it will fail and the image will not compile
+// runs on startup so if not set it will fail and the image will not compile (IIFE)
 var jwt_secret = func() []byte {
 	key := os.Getenv("JWT_SECRET")
 	if key == "" {
