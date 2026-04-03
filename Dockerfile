@@ -1,40 +1,34 @@
-# --- STAGE 1: The Build Environment ---
-# Uses Go 1.26 on Alpine Linux. Alias 'builder' allows Stage 2 to pull files from here.
+# --- STAGE 1: Build ---
 FROM golang:1.26-alpine AS builder
-
-# Creates '/app' inside the container and 'cd's into it. All following paths are relative to this.
 WORKDIR /app
 
-# Copies dependency manifests from your Arch machine to '/app/'. 
-# Done separately to cache 'go mod download' and speed up future builds.
+# Cache dependencies first (Speeds up rebuilds)
 COPY go.mod go.sum ./
-
-# Downloads all external Go libraries into the container's module cache.
 RUN go mod download
 
-# Copies all remaining source code from your local folder into '/app/'.
+# Copy source and build
 COPY . .
-
-# Compiles the app. 
-# CGO_ENABLED=0: Disables C-links to make the binary "Static" (runs anywhere).
-# GOOS=linux: Ensures the executable works on Linux kernels.
+# Note: Ensure your main.go is actually in cmd/api/
 RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/api/
 
-
-# --- STAGE 2: The Lean Runtime ---
-# Starts a fresh, tiny Linux image. We throw away the Go compiler and source code here.
+# --- STAGE 2: Runtime (Production Grade) ---
 FROM alpine:3.23.3
 
-# Sets the execution directory to the root user's home.
-WORKDIR /root/
-# media directory needs to exist
-RUN mkdir -p media
-# Reaches into the 'builder' stage and grabs ONLY the finished 'main' binary.
-# This reduces your image size from ~300MB down to ~15MB.
+# Install SSL certs (Essential for database drivers/HTTPS)
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /app
+
+# Create media directory so the volume mount doesn't fail or use 'root' permissions
+RUN mkdir -p /app/media
+
+# Grab the binary from builder
 COPY --from=builder /app/main .
 
-# Documentation: Tells Docker the app listens on 8080. (Does not actually open ports).
+# Ensure the binary is executable
+RUN chmod +x /app/main
+
 EXPOSE 8080
 
-# The "Entrypoint": Runs the binary the moment the container starts.
+# Run from /app/main to match the internal paths
 CMD ["./main"]

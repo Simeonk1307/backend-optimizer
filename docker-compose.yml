@@ -17,8 +17,9 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgres://postgres:password123@db:5432/socialdb?sslmode=disable
-      - REDIS_URL=redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - DATABASE_URL=${DB_URL}
+      - REDIS_URL=${REDIS_URL}
     volumes:
       - ./media:/app/media
     restart: always 
@@ -29,7 +30,7 @@ services:
     image: postgres:15-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password123
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: socialdb
     # OPTIMIZATION: 'max_connections' tuned for Go concurrency.
     # Normally Postgres waits for a write to be confirmed on disk before telling the client "success". With this off, it says "success" immediately and flushes to disk in the background
