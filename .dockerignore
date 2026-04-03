@@ -1,0 +1,44 @@
+# --- Git ---
+# Version control metadata. Irrelevant inside a container.
+.git/
+.gitignore
+
+# --- Secrets & Config ---
+# Never bake credentials into the image. Compose injects these at runtime.
+.env
+Dockerfile
+docker-compose.yml
+
+# --- Editor ----
+.codex
+.idea/
+.vscode/
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# --- Local dev artifacts ---
+# One-off scripts and generated files that have no place in the binary.
+bundle.go
+compiled_project.txt
+
+# --- Media ---
+# Runtime data, not source code. Mounted via bind mount in compose.
+# Including it would bloat the image with test files.
+media/
+init.sql
+
+# --- Documentation ---
+# The README and PDFs are for humans, not the Go compiler.
+*.md
+*.pdf
+LICENSE
+
+# --- OS artifacts ---
+# macOS and Linux junk files that may sneak in.
+.DS_Store
+Thumbs.db
