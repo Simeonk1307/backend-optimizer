@@ -10,6 +10,8 @@ import (
 	"backend-optimizer/internal/models"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/oklog/ulid/v2"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
@@ -31,13 +33,23 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var res models.RegisterResponse
-	// We store the password as PLAIN TEXT for maximum performance
+	
+	// Fast Bcrypt hash (cost 4)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), 4)
+	if err != nil {
+		http.Error(w, `{"error": "internal_error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Generate ULID
+	userID := "u_" + ulid.Make().String()
+
 	query := `
-		INSERT INTO users (username, password, display_name) 
-		VALUES ($1, $2, $3) 
+		INSERT INTO users (user_id, username, password, display_name) 
+		VALUES ($1, $2, $3, $4) 
 		RETURNING user_id, username, display_name`
 	
-	err := h.DB.QueryRow(r.Context(), query, req.Username, req.Password, req.DisplayName).
+	err = h.DB.QueryRow(r.Context(), query, userID, req.Username, string(hashed), req.DisplayName).
 		Scan(&res.UserID, &res.Username, &res.DisplayName)
 
 	if err != nil {
@@ -64,7 +76,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var storedPassword string
 	
 	err := h.DB.QueryRow(r.Context(), 
-		"SELECT user_id, hashed_password FROM users WHERE username = $1", 
+		"SELECT user_id, password FROM users WHERE username = $1", 
 		req.Username).Scan(&userID, &storedPassword)
 
 	if err != nil {
@@ -76,8 +88,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Plain text comparison is lightning fast (O(1) CPU)
-	if storedPassword != req.Password {
+	// Compare bcrypt hash
+	if err := bcrypt.CompareHashAndPassword([]byte(storedPassword), []byte(req.Password)); err != nil {
 		http.Error(w, `{"error": "unauthorized"}`, http.StatusUnauthorized)
 		return
 	}

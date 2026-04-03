@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // ########## AUTH ##############
 // POST /auth/register
 type RegisterResponse struct {
@@ -35,12 +37,11 @@ type UserDeleteResponse struct {
 type PostResponse struct {
     PostID       string  `json:"post_id"`
     AuthorID     string  `json:"author_id"`
-    Content      string  `json:"content"`
-    ParentPostID *string `json:"parent_post_id"`
-    CreatedAt    string  `json:"created_at"`
-    LikeCount    int     `json:"like_count"`
-    CommentCount int     `json:"comment_count"`
-    LikedByMe    bool    `json:"liked_by_me"`
+    Content      string    `json:"content"`
+    CreatedAt    time.Time `json:"created_at"`
+    LikeCount    int       `json:"like_count"`
+    CommentCount int       `json:"comment_count"`
+    LikedByMe    bool      `json:"liked_by_me"`
 }
 
 // GET /user/get_posts and /user/liked_posts
@@ -50,8 +51,8 @@ type PostListResponse struct {
 }
 
 type Cursor struct {
-    CreatedAt string `json:"created_at"`
-    PostID    string `json:"post_id"`
+    CreatedAt time.Time `json:"created_at"`
+    PostID    string    `json:"post_id"`
 }
 
 //  ############# MEDIA ###############
@@ -76,8 +77,7 @@ type PostCreateResponse struct {
     PostID       string                `json:"post_id"`
     AuthorID     string                `json:"author_id"`
     Content      string                `json:"content"`
-    ParentPostID *string               `json:"parent_post_id"`
-    CreatedAt    string                `json:"created_at"`
+    CreatedAt    time.Time             `json:"created_at"`
 	Media        []MediaCreateResponse `json:"media"`
 }
 
@@ -86,8 +86,7 @@ type PostDetailResponse struct {
     PostID       string                `json:"post_id"`
     AuthorID     string                `json:"author_id"`
     Content      string                `json:"content"`
-    ParentPostID *string               `json:"parent_post_id"`
-    CreatedAt    string                `json:"created_at"`
+    CreatedAt    time.Time             `json:"created_at"`
     LikeCount    int                   `json:"like_count"`
     CommentCount int                   `json:"comment_count"`
     LikedByMe    bool                  `json:"liked_by_me"`

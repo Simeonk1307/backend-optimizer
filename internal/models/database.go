@@ -21,7 +21,6 @@ type Post struct {
     PostID       string    `db:"post_id"`
     AuthorID     string    `db:"author_id"`
     Content      string    `db:"content"`
-    ParentPostID *string   `db:"parent_post_id"`
     LikeCount    int       `db:"like_count"`
     CommentCount int       `db:"comment_count"`
     CreatedAt    time.Time `db:"created_at"`

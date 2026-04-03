@@ -10,7 +10,7 @@ import (
 
 	"backend-optimizer/internal/middleware"
 	"backend-optimizer/internal/models"
-	"github.com/google/uuid"
+	"github.com/oklog/ulid/v2"
 )
 
 // POST /posts/create
@@ -24,11 +24,6 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content := r.FormValue("content")
-	parentID := r.FormValue("parent_post_id")
-	var parentPtr *string
-	if parentID != "" {
-		parentPtr = &parentID
-	}
 
 	// 2. Start Transaction for Atomic Updates
 	tx, err := h.DB.Begin(r.Context())
@@ -38,23 +33,24 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	// 3. Insert Post (Using your schema's p_ prefix default)
-	var post models.PostResponse
+	// 3. Insert Post (Generate ULID)
+	postID := "p_" + ulid.Make().String()
+	post := models.PostCreateResponse{
+		Media: make([]models.MediaCreateResponse, 0),
+	}
 	query := `
-		INSERT INTO posts (author_id, content, parent_post_id)
+		INSERT INTO posts (post_id, author_id, content)
 		VALUES ($1, $2, $3)
-		RETURNING post_id, author_id, content, parent_post_id, created_at, like_count, comment_count`
+		RETURNING post_id, author_id, content, created_at`
 	
-	err = tx.QueryRow(r.Context(), query, userID, content, parentPtr).
-		Scan(&post.PostID, &post.AuthorID, &post.Content, &post.ParentPostID, &post.CreatedAt, &post.LikeCount, &post.CommentCount)
+	err = tx.QueryRow(r.Context(), query, postID, userID, content).
+		Scan(&post.PostID, &post.AuthorID, &post.Content, &post.CreatedAt)
 	if err != nil {
 		return
 	}
 
-	// 4. Increment Parent Comment Count if applicable
-	if parentPtr != nil {
-		tx.Exec(r.Context(), "UPDATE posts SET comment_count = comment_count + 1 WHERE post_id = $1", *parentPtr)
-	}
+	// 4. Update user post_count
+	tx.Exec(r.Context(), "UPDATE users SET post_count = post_count + 1 WHERE user_id = $1", userID)
 
 	// 5. Save Media
 	files := r.MultipartForm.File["media[]"]
@@ -62,7 +58,7 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		file, _ := fHeader.Open()
 		
 		// Generate filename
-		mID := "m_" + uuid.New().String()
+		mID := "m_" + ulid.Make().String()
 		ext := filepath.Ext(fHeader.Filename)
 		fullName := mID + ext
 		
@@ -80,14 +76,14 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		tx.Exec(r.Context(), "INSERT INTO media (media_id, post_id, type, filename) VALUES ($1, $2, $3, $4)",
 			mID, post.PostID, mType, fullName)
 
-		post.Media = append(post.Media, models.MediaResponse{
+		post.Media = append(post.Media, models.MediaCreateResponse{
 			Type:    mType,
 			MediaID: mID,
-			URL:     "/media/" + fullName,
 		})
 	}
 
 	tx.Commit(r.Context())
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(post)
 }
@@ -97,13 +93,15 @@ func (h *Handler) PostDetails(w http.ResponseWriter, r *http.Request) {
 	postID := r.URL.Query().Get("post_id")
 	userID := middleware.UserIDFromCtx(r.Context()) // Can be empty if public
 
-	var post models.PostResponse
+	post := models.PostDetailResponse{
+		Media: make([]models.MediaDetailResponse, 0),
+	}
 	// Optimized Join to get Post + Media in one go (or use two queries for simplicity)
 	err := h.DB.QueryRow(r.Context(), `
-		SELECT post_id, author_id, content, parent_post_id, created_at, like_count, comment_count,
+		SELECT post_id, author_id, content, created_at, like_count, comment_count,
 		EXISTS(SELECT 1 FROM likes WHERE post_id = $1 AND user_id = $2) as liked_by_me
 		FROM posts WHERE post_id = $1`, postID, userID).
-		Scan(&post.PostID, &post.AuthorID, &post.Content, &post.ParentPostID, &post.CreatedAt, &post.LikeCount, &post.CommentCount, &post.LikedByMe)
+		Scan(&post.PostID, &post.AuthorID, &post.Content, &post.CreatedAt, &post.LikeCount, &post.CommentCount, &post.LikedByMe)
 
 	if err != nil {
 		http.Error(w, `{"error": "not_found"}`, http.StatusNotFound)
@@ -114,13 +112,17 @@ func (h *Handler) PostDetails(w http.ResponseWriter, r *http.Request) {
 	rows, _ := h.DB.Query(r.Context(), "SELECT type, media_id, filename FROM media WHERE post_id = $1", postID)
 	defer rows.Close()
 	for rows.Next() {
-		var m models.MediaResponse
+		var m models.MediaDetailResponse
 		var fname string
 		rows.Scan(&m.Type, &m.MediaID, &fname)
 		m.URL = "/media/" + fname
+		// Competition requirement expects a thumbnail logic if possible, 
+		// but since we only saved URL, map thumbnail to URL for now or ignore.
+		m.ThumbnailURL = "/media/" + fname
 		post.Media = append(post.Media, m)
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(post)
 }
 
@@ -138,5 +140,57 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update user post_count
+	h.DB.Exec(r.Context(), "UPDATE users SET post_count = post_count - 1 WHERE user_id = $1", userID)
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+// POST /posts/like
+func (h *Handler) PostLike(w http.ResponseWriter, r *http.Request) {
+	var req models.PostLikeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error": "invalid_json"}`, http.StatusBadRequest)
+		return
+	}
+	userID := middleware.UserIDFromCtx(r.Context())
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		http.Error(w, `{"error": "db_error"}`, http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	// Implement solid toggle mechanism using exact 'Liked' state from the payload body
+	if req.Liked {
+		// Attempt insert, ignores if already liked
+		res, err := tx.Exec(r.Context(), "INSERT INTO likes (user_id, post_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", userID, req.PostID)
+		if err == nil && res.RowsAffected() > 0 {
+			tx.Exec(r.Context(), "UPDATE posts SET like_count = like_count + 1 WHERE post_id = $1", req.PostID)
+		}
+	} else {
+		// Remove like if explicitly unliking
+		res, err := tx.Exec(r.Context(), "DELETE FROM likes WHERE user_id = $1 AND post_id = $2", userID, req.PostID)
+		if err == nil && res.RowsAffected() > 0 {
+			tx.Exec(r.Context(), "UPDATE posts SET like_count = like_count - 1 WHERE post_id = $1", req.PostID)
+		}
+	}
+
+	var likeCount int
+	err = tx.QueryRow(r.Context(), "SELECT like_count FROM posts WHERE post_id = $1", req.PostID).Scan(&likeCount)
+	if err != nil {
+		http.Error(w, `{"error": "not_found"}`, http.StatusNotFound)
+		return
+	}
+
+	tx.Commit(r.Context())
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(models.PostLikeResponse{
+		PostID:    req.PostID,
+		LikeCount: likeCount,
+		LikedByMe: req.Liked,
+	})
 }
