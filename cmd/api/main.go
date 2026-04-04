@@ -56,7 +56,6 @@ func main() {
 	r.Use(chiMiddleware.Recoverer) // Prevents app crashes on panics
 	r.Use(chiMiddleware.RealIP)    // Correctly identifies client IP
 	r.Use(appMiddleware.Logger)
-	r.Use(appMiddleware.Recovery)
 
 	// Serve media files - FIXED PATH to ./media to match Docker WORKDIR
 	mediaFS := http.StripPrefix("/media/", http.FileServer(http.Dir("./media")))
