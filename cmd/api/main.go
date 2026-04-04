@@ -12,10 +12,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/rs/zerolog"
 
 	"backend-optimizer/internal/database"
 	// "backend-optimizer/internal/handlers"
-	// appMiddleware "backend-optimizer/internal/middleware"
+	appMiddleware "backend-optimizer/internal/middleware"
 )
 
 func mustGetEnv(key string) string {
@@ -28,6 +29,9 @@ func mustGetEnv(key string) string {
 }
 
 func main() {
+	// Disables the Logger (faster this way)
+	zerolog.SetGlobalLevel(zerolog.WarnLevel)
+
 	// 1. Setup Signal Handling for Graceful Shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -53,8 +57,10 @@ func main() {
 	r := chi.NewRouter()
 	
 	// Built-in Chi Middleware
-	r.Use(chiMiddleware.Recoverer) // Prevents app crashes on panics
-	r.Use(chiMiddleware.RealIP)    // Correctly identifies client IP
+	// r.Use(chiMiddleware.Logger) BAD and slow
+	r.Use(chiMiddleware.RealIP)
+	r.Use(appMiddleware.Logger)
+	r.Use(appMiddleware.Recoverer)
 
 	// Serve media files - FIXED PATH to ./media to match Docker WORKDIR
 	mediaFS := http.StripPrefix("/media/", http.FileServer(http.Dir("./media")))

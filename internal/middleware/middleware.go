@@ -65,7 +65,7 @@ func (w *StatusWriter) Flush() {
 // Apply to ALL routes:
 //
 //	mux.Handle("/any", Recovery(handler))
-func Recovery(next http.Handler) http.Handler {
+func Recoverer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
