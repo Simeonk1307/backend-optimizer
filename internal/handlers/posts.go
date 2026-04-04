@@ -24,6 +24,12 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content := r.FormValue("content")
+	parentPostID := r.FormValue("parent_post_id")
+	
+	var pIDVal interface{}
+	if parentPostID != "" {
+		pIDVal = parentPostID
+	}
 
 	// 2. Start Transaction for Atomic Updates
 	tx, err := h.DB.Begin(r.Context())
@@ -33,17 +39,23 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	// 3. Insert Post (Generate ULID)
 	postID := "p_" + ulid.Make().String()
+	
+	var pIDResp *string
+	if parentPostID != "" {
+		pIDResp = &parentPostID
+	}
+
 	post := models.PostCreateResponse{
-		Media: make([]models.MediaCreateResponse, 0),
+		Media:        make([]models.MediaCreateResponse, 0),
+		ParentPostID: pIDResp,
 	}
 	query := `
-		INSERT INTO posts (post_id, author_id, content)
-		VALUES ($1, $2, $3)
+		INSERT INTO posts (post_id, parent_post_id, author_id, content)
+		VALUES ($1, $2, $3, $4)
 		RETURNING post_id, author_id, content, created_at`
 	
-	err = tx.QueryRow(r.Context(), query, postID, userID, content).
+	err = tx.QueryRow(r.Context(), query, postID, pIDVal, userID, content).
 		Scan(&post.PostID, &post.AuthorID, &post.Content, &post.CreatedAt)
 	if err != nil {
 		return
@@ -51,6 +63,11 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 
 	// 4. Update user post_count
 	tx.Exec(r.Context(), "UPDATE users SET post_count = post_count + 1 WHERE user_id = $1", userID)
+	
+	// Increment parent post's comment_count if it's a comment
+	if parentPostID != "" {
+		tx.Exec(r.Context(), "UPDATE posts SET comment_count = comment_count + 1 WHERE post_id = $1", parentPostID)
+	}
 
 	// 5. Save Media
 	files := r.MultipartForm.File["media[]"]
@@ -98,10 +115,10 @@ func (h *Handler) PostDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	// Optimized Join to get Post + Media in one go (or use two queries for simplicity)
 	err := h.DB.QueryRow(r.Context(), `
-		SELECT post_id, author_id, content, created_at, like_count, comment_count,
+		SELECT post_id, parent_post_id, author_id, content, created_at, like_count, comment_count,
 		EXISTS(SELECT 1 FROM likes WHERE post_id = $1 AND user_id = $2) as liked_by_me
 		FROM posts WHERE post_id = $1`, postID, userID).
-		Scan(&post.PostID, &post.AuthorID, &post.Content, &post.CreatedAt, &post.LikeCount, &post.CommentCount, &post.LikedByMe)
+		Scan(&post.PostID, &post.ParentPostID, &post.AuthorID, &post.Content, &post.CreatedAt, &post.LikeCount, &post.CommentCount, &post.LikedByMe)
 
 	if err != nil {
 		http.Error(w, `{"error": "not_found"}`, http.StatusNotFound)
@@ -132,6 +149,10 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 	userID := middleware.UserIDFromCtx(r.Context())
 
+	// Need to check if it has a parent before we delete it!
+	var parentID *string
+	h.DB.QueryRow(r.Context(), "SELECT parent_post_id FROM posts WHERE post_id = $1 AND author_id = $2", req.PostID, userID).Scan(&parentID)
+
 	// Only delete if the user is the author
 	res, err := h.DB.Exec(r.Context(), "DELETE FROM posts WHERE post_id = $1 AND author_id = $2", req.PostID, userID)
 	
@@ -142,6 +163,11 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 
 	// Update user post_count
 	h.DB.Exec(r.Context(), "UPDATE users SET post_count = post_count - 1 WHERE user_id = $1", userID)
+
+	// Update comment_count of parent
+	if parentID != nil {
+		h.DB.Exec(r.Context(), "UPDATE posts SET comment_count = comment_count - 1 WHERE post_id = $1", *parentID)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})

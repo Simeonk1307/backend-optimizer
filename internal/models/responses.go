@@ -36,7 +36,8 @@ type UserDeleteResponse struct {
 // Reusable post shape for lists (get_posts, liked_posts, feed)
 type PostResponse struct {
     PostID       string  `json:"post_id"`
-    AuthorID     string  `json:"author_id"`
+    AuthorID     string    `json:"author_id"`
+    ParentPostID *string   `json:"parent_post_id"`
     Content      string    `json:"content"`
     CreatedAt    time.Time `json:"created_at"`
     LikeCount    int       `json:"like_count"`
@@ -76,6 +77,7 @@ type MediaDetailResponse struct {
 type PostCreateResponse struct {
     PostID       string                `json:"post_id"`
     AuthorID     string                `json:"author_id"`
+    ParentPostID *string               `json:"parent_post_id"`
     Content      string                `json:"content"`
     CreatedAt    time.Time             `json:"created_at"`
 	Media        []MediaCreateResponse `json:"media"`
@@ -85,6 +87,7 @@ type PostCreateResponse struct {
 type PostDetailResponse struct {
     PostID       string                `json:"post_id"`
     AuthorID     string                `json:"author_id"`
+    ParentPostID *string               `json:"parent_post_id"`
     Content      string                `json:"content"`
     CreatedAt    time.Time             `json:"created_at"`
     LikeCount    int                   `json:"like_count"`

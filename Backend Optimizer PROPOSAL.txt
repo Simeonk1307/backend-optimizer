@@ -11,6 +11,9 @@ Problem Statement
 Participants will be given a backend problem statement describing a social feed system
 through a set of required API endpoints, request formats, response formats, and
 correctness constraints.
+Every post may optionally contain a parent_post_id . If present, that post is treated as a
+comment on the parent post. Comments are therefore represented using the same post
+model as normal posts.
 Each team must implement the backend so that:
 Participants are free to choose:
 Submission Format
@@ -22,9 +25,6 @@ Framework
 Database
 Caching layer
 Internal architecture
-Each team must submit a Docker image of the complete backend system
-If additional services are required, participants may either bundle them into the image
-or submit a Docker Compose setup, depending on final infrastructure policy
 Verification and Benchmarking
 All submissions will be tested on standardized hardware using a common evaluation
 harness.
@@ -33,7 +33,9 @@ Only correct responses will be considered for scoring.
 The benchmark workload will primarily focus on:
 Evaluation Criteria
 Bonus points for:
-Team Composition
+Each team must submit a Docker image of the complete backend system
+If additional services are required, participants may either bundle them into the image
+or submit a Docker Compose setup, depending on final infrastructure policy
 A short README must explain how to run the service and expose the required port(s)
 Spins up the submitted backend image
 Sends a predefined set of HTTP requests to all required endpoints
@@ -52,8 +54,7 @@ benchmark load
 Memory Usage: Lower memory consumption will be considered in scoring
 System Design: Clean and reliable engineering choices may be used as a tie-breaker
 Efficient handling of concurrent workloads
-Smart caching, indexing, and feed-generation strategies
-Creative but reliable architectural optimizations
+Team Composition
 Languages
 Participants are free to use any programming language or framework of their choice,
 provided the final submission can be executed in Docker.
@@ -64,8 +65,8 @@ Headers:
 Request body:
 Response body:
 POST /auth/login
-Authenticates an existing user and returns an auth token.
-Authentication:
+Smart caching, indexing, and feed-generation strategies
+Creative but reliable architectural optimizations
 4 members per team
 Does not require authentication.
 Content-Type: application/json
@@ -80,7 +81,8 @@ Content-Type: application/json
 "display_name": "Alice",
 "token": "jwt-or-session-token"
 }
-Does not require authentication.
+Authenticates an existing user and returns an auth token.
+Authentication:
 Headers:
 Request body:
 Response body:
@@ -91,7 +93,7 @@ Authentication:
 Headers:
 Request:
 Request body:
-Response body:
+Does not require authentication.
 Content-Type: application/json
 {
 "username": "alice",
@@ -105,7 +107,7 @@ Requires authentication.
 Authorization: Bearer <token>
 Query params optional: user_id
 Example: /user/details?user_id=u_123
-null
+Response body:
 POST /user/delete
 Deletes the authenticated user account.
 Authentication:
@@ -115,8 +117,7 @@ Response body:
 GET /user/get_posts
 Returns posts created by a given user, ordered from newest to oldest.
 Authentication:
-Headers:
-Request:
+null
 {
 "user_id": "u_123",
 "username": "alice",
@@ -131,15 +132,17 @@ Content-Type: application/json
 "success": true
 }
 Requires authentication.
-Authorization: Bearer <token>
+Headers:
+Request:
 Request body:
 Response body:
+comment_count counts only direct child posts whose parent_post_id equals this post's
+ID. It does not include deeper descendants.
 GET /user/liked_posts
 Returns posts liked by a given user.
 Authentication:
 Headers:
-Request:
-Request body:
+Authorization: Bearer <token>
 Query params: user_id , optional pagination params such as cursor and limit
 Example: /user/get_posts?user_id=u_123&limit=20&cursor=cursor_1
 null
@@ -149,6 +152,7 @@ null
 "post_id": "p_1",
 "author_id": "u_123",
 "content": "hello world",
+"parent_post_id": null,
 "created_at": "2026-03-29T10:00:00Z",
 "like_count": 10,
 "comment_count": 2,
@@ -158,17 +162,19 @@ null
 "next_cursor": "cursor_2"
 }
 Requires authentication.
+Request:
+Request body:
+Response body:
+comment_count counts only direct child posts whose parent_post_id equals this post's
+ID. It does not include deeper descendants.
+POST /posts/create
+Creates a new post with optional media. If parent_post_id is provided, the created post
+is a comment. This is a heavy-write endpoint.
+Authentication:
+Headers:
 Authorization: Bearer <token>
 Query params: user_id , optional pagination params such as cursor and limit
 Example: /user/liked_posts?user_id=u_123&limit=20&cursor=cursor_1
-Response body:
-POST /posts/create
-Creates a new post with optional media. This is a heavy-write endpoint.
-Authentication: Requires Bearer Token
-Content-Type: multipart/form-data
-Request Fields:
-Response Body:
-JSON
 null
 {
 "posts": [
@@ -176,6 +182,7 @@ null
 "post_id": "p_7",
 "author_id": "u_999",
 "content": "a liked post",
+"parent_post_id": null,
 "created_at": "2026-03-29T09:00:00Z",
 "like_count": 30,
 "comment_count": 5,
@@ -184,33 +191,56 @@ null
 ],
 "next_cursor": "cursor_3"
 }
-content : (String) Text content.
-media[] : (File Bytes) Zero or more images
+Requires authentication.
+Request:
+Example form submission:
+Response body:
+GET /posts/details
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+Multipart form submission.
+Form fields:
+content : text content of the post
+parent_post_id : optional parent post ID; if present, the post is a comment
+media[] : zero or more uploaded files as raw bytes
+content = "Check out my setup!"
+parent_post_id = "p_100" # optional
+media[] = <image bytes>
+media[] = <video bytes>
 {
 "post_id": "p_123",
 "author_id": "u_123",
 "content": "Check out my setup!",
+"parent_post_id": null,
 "media": [
 {
-GET /posts/details
-Returns full details for a single post. This endpoint is used by the tester to verify that
-media was saved correctly.
-Authentication: Requires Bearer Token
-Query Params: post_id=p_123
-Response Body:
-JSON
-POST /posts/delete
-Deletes a post created by the authenticated user.
 "type": "image",
 "media_id": "m_001"
+},
+{
+"type": "video",
+"media_id": "m_002"
 }
 ],
 "created_at": "2026-03-29T10:10:00Z"
 }
+Returns full details for a single post. This endpoint is used by the tester to verify that
+media was saved correctly.
+Authentication:
+Headers:
+Request:
+Request body:
+Response body:
+Requires authentication.
+Authorization: Bearer <token>
+Query params: post_id
+Example: /posts/details?post_id=p_123
+null
 {
 "post_id": "p_123",
 "author_id": "u_123",
 "content": "Check out my setup!",
+"parent_post_id": null,
 "created_at": "2026-03-29T10:10:00Z",
 "like_count": 5,
 "comment_count": 2,
@@ -224,6 +254,10 @@ Deletes a post created by the authenticated user.
 }
 ]
 }
+comment_count counts only direct child posts whose parent_post_id equals this post's
+ID. It does not include deeper descendants.
+POST /posts/delete
+Deletes a post created by the authenticated user.
 Authentication:
 Headers:
 Request body:
@@ -233,8 +267,6 @@ Tester Validation Logic: The benchmark tool will attempt to download the file at
 POST /posts/like
 Likes or unlikes a post. This should be concurrency-safe under heavy write load.
 Authentication:
-Headers:
-Request body:
 Requires authentication.
 Authorization: Bearer <token>
 Content-Type: application/json
@@ -248,9 +280,11 @@ Content-Type: application/json
 2. The downloaded bytes will be hashed (MD5) and compared against the original
 upload. A mismatch results in a Correctness Penalty.
 Requires authentication.
+Headers:
+Request body:
+Response body:
 Authorization: Bearer <token>
 Content-Type: application/json
-Response body:
 {
 "post_id": "p_123",
 "liked": true

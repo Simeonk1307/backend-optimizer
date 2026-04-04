@@ -8,8 +8,6 @@ RUN go mod download
 
 # Copy source and build
 COPY . .
-RUN go mod tidy
-RUN go get github.com/oklog/ulid/v2
 # Note: Ensure your main.go is actually in cmd/api/
 RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/api/
 

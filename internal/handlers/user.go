@@ -67,7 +67,7 @@ func (h *Handler) UserGetPosts(w http.ResponseWriter, r *http.Request) {
 
 	// Use explicit tuple ordering so Postgres natively leverages the (author_id, created_at) index
 	query := `
-		SELECT p.post_id, p.author_id, p.content, p.created_at, p.like_count, p.comment_count,
+		SELECT p.post_id, p.parent_post_id, p.author_id, p.content, p.created_at, p.like_count, p.comment_count,
 		EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.post_id AND l.user_id = $1) as liked_by_me
 		FROM posts p
 		WHERE p.author_id = $2 `
@@ -101,7 +101,7 @@ func (h *Handler) UserGetPosts(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var post models.PostResponse
-		rows.Scan(&post.PostID, &post.AuthorID, &post.Content, &post.CreatedAt, &post.LikeCount, &post.CommentCount, &post.LikedByMe)
+		rows.Scan(&post.PostID, &post.ParentPostID, &post.AuthorID, &post.Content, &post.CreatedAt, &post.LikeCount, &post.CommentCount, &post.LikedByMe)
 		posts = append(posts, post)
 		
 		lastID := post.PostID
@@ -141,7 +141,7 @@ func (h *Handler) UserLikedPosts(w http.ResponseWriter, r *http.Request) {
 	// Sorting by likes.created_at, we can cursor using likes.created_at or a synthetic cursor.
 	// Since likes don't have ULIDs, we use likes.created_at explicitly.
 	query := `
-		SELECT p.post_id, p.author_id, p.content, p.created_at, p.like_count, p.comment_count,
+		SELECT p.post_id, p.parent_post_id, p.author_id, p.content, p.created_at, p.like_count, p.comment_count,
 		EXISTS(SELECT 1 FROM likes l2 WHERE l2.post_id = p.post_id AND l2.user_id = $1) as liked_by_me,
 		l.created_at as liked_at
 		FROM posts p
@@ -177,7 +177,7 @@ func (h *Handler) UserLikedPosts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var post models.PostResponse
 		var likedAt time.Time
-		rows.Scan(&post.PostID, &post.AuthorID, &post.Content, &post.CreatedAt, &post.LikeCount, &post.CommentCount, &post.LikedByMe, &likedAt)
+		rows.Scan(&post.PostID, &post.ParentPostID, &post.AuthorID, &post.Content, &post.CreatedAt, &post.LikeCount, &post.CommentCount, &post.LikedByMe, &likedAt)
 		posts = append(posts, post)
 		lastID := post.PostID
 		cursorStr := base64.URLEncoding.EncodeToString([]byte(likedAt.Format(time.RFC3339Nano) + "|" + lastID))

@@ -11,6 +11,7 @@ CREATE TABLE users (
 
 CREATE TABLE posts (
     post_id        TEXT PRIMARY KEY,
+    parent_post_id TEXT REFERENCES posts(post_id) ON DELETE CASCADE,
     author_id      TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     content        TEXT NOT NULL,
     like_count     INT DEFAULT 0,

@@ -53,7 +53,6 @@ func main() {
 	r := chi.NewRouter()
 	
 	// Built-in Chi Middleware
-	r.Use(chiMiddleware.Recoverer) // Prevents app crashes on panics
 	r.Use(chiMiddleware.RealIP)    // Correctly identifies client IP
 	r.Use(appMiddleware.Logger)
 	r.Use(appMiddleware.Recovery)
