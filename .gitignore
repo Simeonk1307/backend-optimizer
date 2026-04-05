@@ -33,3 +33,16 @@ go.work.sum
 
 .codex
 compiled_project.txt
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Load testing results
+loadtest/*.csv
+
+# Python virtual environment
+.venv/
+venv/
