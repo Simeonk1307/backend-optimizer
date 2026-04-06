@@ -25,6 +25,12 @@ services:
     restart: always 
     networks:
       - backend_optimizer_net
+    healthcheck:
+      # Option A: Using wget (reliable for Alpine)
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   db:
     image: postgres:15-alpine
@@ -66,18 +72,6 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 5
-    networks:
-      - backend_optimizer_net
-
-  pgadmin:
-    image: dpage/pgadmin4
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "5050:80"
-    depends_on:
-      - db
     networks:
       - backend_optimizer_net
 

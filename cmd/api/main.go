@@ -15,7 +15,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"backend-optimizer/internal/database"
-	// "backend-optimizer/internal/handlers"
+	"backend-optimizer/internal/handlers"
 	appMiddleware "backend-optimizer/internal/middleware"
 )
 
@@ -51,7 +51,7 @@ func main() {
 
 	// 4. Dependency Injection
 	// We pass the global pools directly from the database package
-	// h := handlers.NewHandler(database.PPool, database.RDB)
+	h := handlers.NewHandler(database.PPool, database.RDB)
 
 	// 5. Router Setup
 	r := chi.NewRouter()
@@ -90,27 +90,27 @@ func main() {
     })
 
 	// Public Routes
-	// r.Post("/auth/register", h.Register)
-	// r.Post("/auth/login", h.Login)
+	r.Post("/auth/register", h.Register)
+	r.Post("/auth/login", h.Login)
 
 	// Authenticated Routes
-	// r.Group(func(r chi.Router) {
+	r.Group(func(r chi.Router) {
 		// FIXED: appMiddleware.Auth no longer needs 'cache' passed in 
 		// because it uses the global database.RDB internally.
-		// r.Use(appMiddleware.Auth)
+		r.Use(appMiddleware.Auth)
 
 	// 	// User Endpoints
-	// 	r.Get("/user/details", h.UserDetails)
-	// 	r.Post("/user/delete", h.UserDelete)
-	// 	r.Get("/user/get_posts", h.UserGetPosts)
-	// 	r.Get("/user/liked_posts", h.UserLikedPosts)
+		r.Get("/user/details", h.UserDetails)
+		r.Post("/user/delete", h.UserDelete)
+		r.Get("/user/get_posts", h.UserGetPosts)
+		r.Get("/user/liked_posts", h.UserLikedPosts)
 
-	// 	// Post Endpoints
-	// 	r.Post("/posts/create", h.PostCreate)
-	// 	r.Get("/posts/details", h.PostDetails)
-	// 	r.Post("/posts/delete", h.PostDelete)
-	// 	r.Post("/posts/like", h.PostLike)
-	// })
+		// Post Endpoints
+		r.Post("/posts/create", h.PostCreate)
+		r.Get("/posts/details", h.PostDetails)
+		r.Post("/posts/delete", h.PostDelete)
+		r.Post("/posts/like", h.PostLike)
+	})
 
 	// 6. Server Configuration (Optimized Timeouts)
 	srv := &http.Server{
